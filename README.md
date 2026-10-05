@@ -7,9 +7,11 @@ Those weights then transfer into a multi-agent soccer environment trained with *
 self-play. The agents learn to chase, kick, hold defensive shape and specialise into roles —
 without any scripted behaviour telling them to.
 
-Built as a team project for a course at McGill University (2025–26).
+Built as a team project for a course at McGill University (Aug 2025 – Apr 2026).
 
 ![Stage 1 locomotion](CustomWalkingSoccerTwos/Videos/Stage%201/Stage1_GoodClip_V1.gif)
+
+▶ **[Watch the final 3v3 policy play (video)](https://drive.google.com/file/d/1bQIqSRJGe6BNBm9RDNiDwuzUt5F4Cvfo/view?usp=sharing)**
 
 ## The two design decisions that make it work
 
@@ -48,24 +50,78 @@ orientation cube supplying a stable reference frame to remove global drift.
 
 ## Training
 
+Both stages were configured for long runs. These are the actual values from the training
+configs in `Training Configs/`, not approximations.
+
 | | Stage 1 — locomotion | Stage 2 — soccer |
 |---|---|---|
-| Algorithm | PPO (single-agent) | MA-POCA (multi-agent) |
-| Steps | ~18M | continued from Stage 1 |
-| Wall clock | ~12 hours | — |
-| Learning rate | 3e-4, constant | — |
-| Batch / buffer | 8192 / 81920 | — |
-| Environment | 10–20 parallel arenas, moving targets | 3v3 with self-play |
+| Algorithm | PPO (single-agent) | **MA-POCA** (multi-agent) |
+| Configured steps | 30,000,000 | 20,000,000 |
+| Learning rate | 3e-4, constant | 1e-4, constant |
+| Batch / buffer | 8,192 / 81,920 | 8,192 / 81,920 |
+| Discount (γ) | 0.99 | 0.995 |
+| Entropy (β) | 0.005 | 0.005 |
+| Clip (ε) / GAE (λ) / epochs | 0.2 / 0.95 / 3 | 0.2 / 0.95 / 3 |
+| Network | 512 units, 3 layers, normalised observations | identical — which is what makes the transfer work |
+| Environment | 10–20 parallel arenas, moving targets, no ball | 2v2 escalating to 3v3, dynamic team-size detection, self-play |
 
-Roughly 50+ hours of training across the two stages, including the failed runs. ELO was tracked
-throughout to measure progress rather than relying on reward alone. Emergent behaviour observed
-included role specialisation (one agent committing forward while another held back) and
-defensive clearing.
+Two differences between the stages carry the design:
 
-**Honest status:** performance is imperfect. The agents walk and play recognisably, but the
-policy is not a strong footballer and the ELO gain from Stage 2 is smaller than the gain from
-Stage 1. The value of the project is the pipeline and the documentation of what did and did not
-work.
+- **The learning rate drops 3× in Stage 2** (3e-4 → 1e-4). Stage 2 is fine-tuning transferred
+  weights, not learning from scratch, and a full-size step would wreck the gait the agent had
+  already learned.
+- **γ rises from 0.99 to 0.995.** At 0.995 a reward roughly 150–200 steps away still carries more
+  than half its weight, which is what lets a goal influence the pass that set it up.
+
+Wall clock was about **12 hours for the first 18M locomotion steps**, and roughly **50+ hours
+total** across both stages once the failed runs are counted.
+
+### Self-play
+
+Competitive training is schedule-driven rather than hand-started:
+
+| Setting | Value |
+|---|---|
+| Snapshot interval | every 50,000 steps |
+| Snapshots retained | 5 |
+| Team swap | every 200,000 steps, graduated over 10,000 |
+| Opponent mix | 50% latest model, 50% snapshot pool |
+| Initial ELO | 1200 |
+
+The opponent mix matters. Playing only the newest model lets it drift into a strategy that beats
+itself; playing only old snapshots lets it stagnate against outdated opponents.
+
+### Curriculum
+
+Stage 2 does not begin as soccer. Four environment parameters ramp in lockstep:
+
+| Parameter | Progression | Why |
+|---|---|---|
+| `ball_touch` | 0.35 → 0.5 → 1.0 | Chase the ball first, enable kicking second, full soccer last |
+| `ball_spawn_radius` | 1.5 → 2.0 → 1.5 | Broad spatial search early, tighter spawns once scoring matters |
+| `locomotion_scale` | 0.5 → 0.4 → 0.15 | Fade the inherited locomotion reward so soccer signals dominate |
+| `self_play_weight` | 0.0 → 1.0 at 50% progress | Cooperative first, competitive once the basics exist |
+
+Reward was concentrated on outcomes: **+50 × time_bonus** for scoring, **−10 × self_play_weight**
+for conceding, and a **−0.04 × toward-speed** penalty on own-goal shots to stop accidental
+backward clears.
+
+### What went wrong, and what fixed it
+
+The training log records nine phases, and the informative ones are the failures:
+
+- **Locomotion reward dominance.** Early Stage 2 mean reward sat at 60–100 against an expected
+  5–20, with **no goals in 530,000 steps** and ELO sliding 1052 → 676. The inherited locomotion
+  reward was worth +80–100 per episode versus +0–2 from soccer, so the agents simply kept
+  walking. Fixed by fading `locomotion_scale`.
+- **Wall-sticking and corner piling.** Agents learned to trap the ball against geometry and farm
+  reward without playing football. Fixed with touch cooldowns and stuck-ball detection.
+- **A full training collapse**, recovered from by softening the penalty schedule.
+
+**Honest status:** performance is imperfect. The agents walk, chase, kick and hold shape
+recognisably, and role specialisation emerged without being scripted — but this is not a strong
+football policy, and Stage 2's ELO gain is smaller than Stage 1's. The value is in the pipeline
+and the record of what did and did not work.
 
 ## What is in this repository
 
@@ -95,9 +151,10 @@ summary written afterwards:
   forced the switch
 - **`PRESENTATION_SUMMARY.md`**, **`CHANGELOG.md`** — results and iteration history
 
-**Not included, deliberately:** 51 of the 53 training checkpoints (they are intermediate saves;
-one final model per stage is kept so the policy can be run without retraining), and the original
-submitted report, which carries other people's names.
+**Not included, deliberately:** 51 of the 53 training checkpoints — those are intermediate
+saves. One final model per stage is kept so the policy can be run without retraining: Stage 1 at
+step **30,000,173** and Stage 2 at step **20,000,114**. Also omitted is the originally submitted
+report, which carries other people's names and student IDs.
 
 ## Running it
 
