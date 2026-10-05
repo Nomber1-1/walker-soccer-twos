@@ -7,7 +7,7 @@ Those weights then transfer into a multi-agent soccer environment trained with *
 self-play. The agents learn to chase, kick, hold defensive shape and specialise into roles —
 without any scripted behaviour telling them to.
 
-Built as a team project for a course at McGill University (Aug 2025 – Apr 2026).
+Built as a team project for a course at McGill University (Nov 2025 – Dec 2025).
 
 ![Stage 1 locomotion](CustomWalkingSoccerTwos/Videos/Stage%201/Stage1_GoodClip_V1.gif)
 
